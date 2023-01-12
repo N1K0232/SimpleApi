@@ -1,25 +1,37 @@
+using SimpleApi.DataAccessLayer;
+using SimpleApi.Security;
+
 var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
-
-builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+ConfigureServices(builder.Services);
 
 var app = builder.Build();
+Configure(app);
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+await app.RunAsync();
+
+void ConfigureServices(IServiceCollection services)
+{
+    services.AddControllers();
+    services.AddEndpointsApiExplorer();
+    services.AddSwaggerGen();
+
+    services.AddScoped<IDataContext, DataContext>();
+    services.AddScoped<IPasswordHasher, PasswordHasher>();
+}
+
+void Configure(IApplicationBuilder app)
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+
+    app.UseRouting();
+
+    app.UseHttpsRedirection();
+    app.UseAuthorization();
+
+
+    app.UseEndpoints(endpoints =>
+    {
+        endpoints.MapControllers();
+    });
 }
-
-app.UseHttpsRedirection();
-
-app.UseAuthorization();
-
-app.MapControllers();
-
-app.Run();
