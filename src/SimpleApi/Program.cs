@@ -1,3 +1,7 @@
+using OperationResults.AspNetCore;
+using SimpleApi.BusinessLayer.Extensions;
+using SimpleApi.BusinessLayer.Services;
+using SimpleApi.BusinessLayer.Services.Interfaces;
 using SimpleApi.DataAccessLayer;
 using SimpleApi.Security;
 
@@ -15,8 +19,15 @@ void ConfigureServices(IServiceCollection services)
     services.AddEndpointsApiExplorer();
     services.AddSwaggerGen();
 
+    services.AddOperationResult();
+
+    services.AddMapperProfiles();
+    services.AddValidators();
+
     services.AddScoped<IDataContext, DataContext>();
     services.AddScoped<IPasswordHasher, PasswordHasher>();
+
+    services.AddScoped<IPeopleService, PeopleService>();
 }
 
 void Configure(IApplicationBuilder app)

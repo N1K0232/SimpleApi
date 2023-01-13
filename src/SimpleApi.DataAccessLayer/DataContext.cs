@@ -1,12 +1,16 @@
 ﻿using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using SimpleApi.DataAccessLayer.Entities;
+using SimpleApi.DataAccessLayer.Entities.Common;
 using SimpleApi.Security;
 using System.Data;
+using System.Reflection;
+using System.Text;
 
 namespace SimpleApi.DataAccessLayer;
 
-public class DataContext : IDataContext
+public partial class DataContext : IDataContext
 {
     private readonly IConfiguration configuration;
     private readonly ILogger<DataContext> logger;
@@ -34,19 +38,91 @@ public class DataContext : IDataContext
         adapter = null;
         reader = null;
 
+        disposed = false;
+
         Initialize();
     }
 
 
-    public Task<int> SaveAsync()
+
+    public async Task<IEnumerable<Person>> GetListAsync()
+    {
+        try
+        {
+            await connection.OpenAsync();
+            command = new SqlCommand("SELECT Id,FirstName,LastName FROM People", connection);
+            reader = await command.ExecuteReaderAsync();
+
+            var people = new List<Person>();
+
+            while (await reader.ReadAsync())
+            {
+                people.Add(new Person
+                {
+                    Id = Guid.Parse(reader["Id"].ToString()),
+                    FirstName = reader["FirstName"].ToString(),
+                    LastName = reader["LastName"].ToString()
+                });
+            }
+
+            await connection.CloseAsync();
+
+            return people;
+        }
+        catch (SqlException ex)
+        {
+            logger.LogError(ex, "can't retrieve list");
+            throw ex;
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogError(ex, "can't retrieve list");
+            throw ex;
+        }
+    }
+
+    public async Task CreateAsync(Person person)
+    {
+        string commandText;
+
+        try
+        {
+            await connection.OpenAsync();
+            command = new SqlCommand(null, connection);
+
+            commandText = "";
+            commandText += $"INSERT INTO People(Id,FirstName,LastName) ";
+            commandText += "VALUES(@Id,@FirstName,@LastName)";
+
+            command.CommandText = commandText;
+
+            SaveEntityCore(person);
+        }
+        catch (SqlException ex)
+        {
+            logger.LogError(ex, "Can't save person");
+            await Task.FromException<SqlException>(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogError(ex, "Can't save person");
+            await Task.FromException<InvalidOperationException>(ex);
+        }
+    }
+
+    public async Task<int> SaveAsync()
     {
         ThrowIfDisposed();
+
         if (connection == null || connection.State == ConnectionState.Closed || command == null)
         {
-            throw new InvalidOperationException("the connection isn't open can't save changes");
+            throw new InvalidOperationException("The connection isn't open. Can't save changes");
         }
 
-        return command.ExecuteNonQueryAsync();
+        int savedEntries = await command.ExecuteNonQueryAsync();
+        await connection.CloseAsync();
+
+        return savedEntries;
     }
 
 
@@ -58,7 +134,7 @@ public class DataContext : IDataContext
             throw new InvalidOperationException("the connection string is invalid");
         }
 
-        SqlConnection value = new(StringHasher.GetString(connectionString));
+        SqlConnection value = new(connectionString);
         Exception e = null;
 
         try
@@ -82,6 +158,56 @@ public class DataContext : IDataContext
         }
 
         connection = value;
+    }
+
+    private void SaveEntityCore<TEntity>(TEntity entity) where TEntity : BaseEntity
+    {
+        if (entity.Id == Guid.Empty)
+        {
+            entity.Id = Guid.NewGuid();
+        }
+
+        Type entityType = entity.GetType();
+        PropertyInfo[] properties = entityType.GetProperties();
+
+        foreach (PropertyInfo property in properties)
+        {
+            command.Parameters.Add(new SqlParameter(property.Name, property.GetValue(entity)));
+        }
+    }
+
+    //TO-DO
+    private async Task<int> CountAsync(string query)
+    {
+        using var countCommand = new SqlCommand(query, connection);
+        object countObject = await countCommand.ExecuteScalarAsync();
+
+        return Convert.ToInt32(countObject);
+    }
+
+    public override int GetHashCode()
+    {
+        ThrowIfDisposed();
+
+        int hashCode = base.GetHashCode();
+
+        return hashCode |
+            connection.GetHashCode() |
+            command?.GetHashCode() ?? 0 |
+            adapter?.GetHashCode() ?? 0 |
+            reader?.GetHashCode() ?? 0;
+    }
+
+    public override string ToString()
+    {
+        ThrowIfDisposed();
+
+        var sb = new StringBuilder();
+        sb.AppendLine(base.ToString());
+        sb.AppendLine($"Database: {connection.Database}");
+        sb.AppendLine($"DataSource: {connection.DataSource}");
+
+        return sb.ToString();
     }
 
     public void Dispose()
